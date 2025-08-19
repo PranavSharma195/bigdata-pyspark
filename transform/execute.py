@@ -7,11 +7,18 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from utility.utility import setup_logging, format_time
 import time
 
-def create_spark_session(logger):
-    """Initialize Spark session"""
-    logger.info("stage0")
-    return SparkSession.builder.appName("SpotifyDataTransform").config("spark.driver.memory", "2g").config("spartk.executor.memory", "4g").getOrCreate()
-
+def create_spark_session(logger, spark_config):
+    """Initialize Spark session."""
+    logger.info("Starting spark session")
+    return (SparkSession.builder
+            .master(f"spark://{spark_config['master_ip']}:7077")
+            .appName("SpotifyDataTransform")
+            .config("spark.driver.memory", spark_config["driver_memory"])
+            .config("spark.executor.memory", spark_config["executor_memory"])
+            .config("spark.executor.cores", spark_config["executor_cores"])
+            .config("spark.executor.instances", spark_config["executor_instances"])
+            .getOrCreate()
+    )
 def load_and_clean(logger,spark, input_dir, output_dir):
     """Stage 1: Load data, drop duplicates, remove nulls, save cleaned data."""
     logger.info("stage 1")
@@ -127,20 +134,30 @@ def create_query_tables(logger,output_dir, artists_df, recommendations_df, track
     logger.info("Stage 3: Query-optimized tables saved")
 
 if __name__ == "__main__":
-    logger=setup_logging("transform.log")
-    start=time.time()
-    if len(sys.argv) != 3:
-        logger.info("Usage: python script.py <input_dir> <output_dir>")
+
+    logger = setup_logging("transform.log")
+
+    if len(sys.argv) != 8:
+        logger.error("Usage: python script.py <input_dir> <output_dir>")
         sys.exit(1)
-    
+   
     input_dir = sys.argv[1]
     output_dir = sys.argv[2]
-    logger.info("stage -1")
-    spark = create_spark_session(logger)
-    artists_df, recommendations_df, tracks_df = load_and_clean(logger,spark, input_dir, output_dir)
-    create_master_table(logger,output_dir, artists_df, recommendations_df, tracks_df)
-    create_query_tables(logger,output_dir, artists_df, recommendations_df, tracks_df)
+    spark_config = {}
+    spark_config["master_ip"] = sys.argv[3]
+    spark_config["driver_memory"] = sys.argv[4]
+    spark_config["executor_memory"] = sys.argv[5]
+    spark_config["executor_cores"] = sys.argv[6]
+    spark_config["executor_instances"] = sys.argv[7]
 
-    end=time.time()
-    logger.info("Transformation pipeline completed")
+    logger.info("Transform stage started")
+    start = time.time()
+
+    spark = create_spark_session(logger,spark_config)
+    artists_df, recommendations_df, tracks_df = load_and_clean(logger, spark, input_dir, output_dir)
+    create_master_table(logger, output_dir, artists_df, recommendations_df, tracks_df)
+    create_query_tables(logger, output_dir, artists_df, recommendations_df, tracks_df)
+
+    end = time.time()
+    logger.info("Transfom stage completed")
     logger.info(f"Total time taken {format_time(end-start)}")
